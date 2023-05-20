@@ -1,4 +1,4 @@
-# BigDataOpportunityInsights
+# Big Data - Opportunity Insights
 The Harvard economist Raj Chetty and his team at Opportunity Insights have done excellent work investigating the trends behind economic mobility in the US over the last half-century. One of the ways they've made this work available to the public is through their course, Using Big Data to Solve Economic and Social Problems, first offered at Harvard in Spring 2019 and available ([here](https://opportunityinsights.org/course/)) on their website now.
 
 In this repository, I will post my work on the empirical projects for that course, which interest me because of their focus on understanding the application of quantitative, empirical methods to difficult social science questions. Descriptions of each of the projects are below:
