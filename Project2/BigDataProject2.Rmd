@@ -1,0 +1,230 @@
+---
+title: Do Smaller Classes Improve Test Scores? Evidence from a Regression Discontinuity
+  Design
+author: "Ben Warren"
+date: "5/28/2022"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(haven)
+library(rdrobust)
+library(dplyr)
+library(ggplot2)
+```
+
+```{r readdata, include=FALSE}
+data <- read_dta("/Users/benwarren/Downloads/project2/grade5.dta")
+```
+
+When investigating the impact of class size on students' academic success, simply comparing smaller and larger classes likely does not capture the true effect. Small classes would be correlated with the amount of funding that a school receives (not to mention the fact that private schools have on average [6 fewer students per class than public schools in the U.S.)](https://www.fatherly.com/love-money/private-school-vs-public-school-facts-benefits-statistics#:~:text=The%20average%20class%20size%20is,to%2016.1%20students%20per%20class.).
+
+This would mean that a simple comparison might just pick up the effects of household wealth, since wealthier students are more likely to attend private school or reside in districts with more funding. The comparison would likely be biased upwards relative to the true causal effect. If smaller classes indeed correlate to higher test scores, that effect would compound with the effects of household wealth and school funding to create a more significant impact when considering just a simple comparison.
+
+The Tennessee STAR experiment sought to overcome this issue by focusing on what they called "class effects," or the sum effect of a student being assigned to a specific teacher and classroom (this, of course, was the only variable the experiment could truly control). They tested whether outcome variables differed more across the classes than would be predicted by random variance. Through this analysis, they rejected the null hypothesis that there was no class effect on earnings at age 27. The standard deviation of the difference between classes was up to 10% of the income at that age.
+
+One way to look at the potential difference between outcomes between class sizes is to construct a binned scatterplot, an alternative to a traditional scatterplot that breaks data down into "bins" or smaller quantiles of a pre-determined amount and plots them based on a mean characteristic. We can use these observations to begin a regression discontinuity analysis.
+
+The following binned scatterplot of class sizes and school enrollment shows that for fifth-grade classes at public schools in Israel, class sizes display a discontinuity at 40 students in a school. For school enrollments less than 40 and greater than 40, separately, a linear model seems appropriate.
+
+```{r q4a, echo=FALSE}
+#Subset data to observations in [20,60]
+narrow <- subset(data, school_enrollment <= 60 & school_enrollment >= 20)
+#draw binned scatter plot with linear fit
+rdplot(narrow$classize, narrow$school_enrollment, c = 40.5, p =1, nbins = 20, x.label = "School Enrollment", y.label="Class Size")
+
+```
+
+A similar analysis shows that a quadratic fit is appropriate for modeling math scores in RD.
+
+```{r q4b, echo=FALSE}
+#draw binned scatter plot with quadratic fit
+rdplot(narrow$avgmath, narrow$school_enrollment, c = 40.5, p =2, nbins = 20, title="Avg. Math Scores vs. School Enrollment", x.label="School Enrollment", y.label="Avg. Math Score")
+```
+
+There is a vague quadratic relationship between the % of a school disadvantaged and the school enrollment, but it is weak.
+
+```{r q4ci, echo=FALSE}
+#draw binned scatter plot with quadratic fit
+rdplot(narrow$disadvantaged, narrow$school_enrollment, c = 40.5, p =2, nbins = 20, title="Disadvantaged vs. School Enrollment", x.label="School Enrollment", y.label="% of class disadvantaged")
+
+```
+
+There appears to be a linear relationship between school enrollment and the % of the school that is religious.
+
+```{r q4cii, echo=FALSE}
+#draw binned scatter plot with linear fit
+rdplot(narrow$religious, narrow$school_enrollment, c = 40.5, p =1, nbins = 20,title="% of schools religious vs. School Enrollment", y.label = "% of schools religious", x.label = "School Enrollment")
+```
+
+There does not appear to be a relationship between the proportion of the students that are girls and school enrollment.
+
+```{r q4ciii, echo=FALSE}
+rdplot(narrow$female, narrow$school_enrollment, c = 40.5, p =1, nbins = 20,title="% of Students Female vs. School Enrollment", y.label = "% of students female", x.label = "School Enrollment")
+```
+
+A histogram of schools by enrollment numbers shows that the distribution is fairly uniform, but with modes at the low end of the 40-students-and-under group and the high end of the over-40 students group.
+
+```{r 4d, echo=FALSE}
+#Collapse data
+by_school <- group_by(narrow, schlcode)
+schools <- summarise(by_school, school_enrollment =
+mean(school_enrollment, na.rm = TRUE))
+#Draw graph
+ggplot(schools, aes(school_enrollment)) +
+ geom_histogram(bins = 40) +
+ geom_vline(xintercept=40.5, color = "red")
+```
+
+Informed by observations from the graphs, we can now run regressions to quantify the relationship between school enrollment and the other variables.
+
+```{r 5setup, include=FALSE}
+#For clustered standard errors
+source("/Users/benwarren/Downloads/project2/BM_StandardErrors.R")
+#Subset data and define indicator for above enrollment > 40
+narrow <- subset(data, school_enrollment <= 80)
+narrow$above40 <- 0
+narrow$above40[which(narrow$school_enrollment > 40)] <- 1
+#Generate centered version of enrollment
+narrow$x <- narrow$school_enrollment - 40
+#Generate interaction term
+narrow$x_above <- narrow$above40*narrow$x
+```
+
+A regression run on class size returns a strong model utility test and a fairly high R-squared value of over 0.5, which shows that school enrollment appears to have a strong relationship with class size.
+
+```{r 5a, echo=FALSE}
+#Run regression
+mod1 <- lm(classize~above40 + x + x_above, data = narrow)
+summary(mod1)
+#Report clustered standard errors
+clustervar <- as.factor(narrow$schlcode)
+BMlmSE(mod1, clustervar, IK=F)
+```
+
+The relationship between average math scores and higher school enrollment is tenuous at most. The model utility test returns a p-value less than 0.5, but the R-squared value is just 0.03, indicating that though higher school enrollment may help explain some variation in math scores, that connection is small.
+
+```{r 5b, echo=FALSE}
+#Run regression
+mod1 <- lm(avgmath~above40 + x + x_above, data = narrow)
+summary(mod1)
+#Report clustered standard errors
+clustervar <- as.factor(narrow$schlcode)
+BMlmSE(mod1, clustervar, IK=F)
+```
+
+Similar to math scores, verbal test scores show a weak relationship with high school enrollment, with an R-squared value of just over 0.01.
+
+```{r 5bii, echo=FALSE}
+#Run regression
+mod2 <- lm(avgverb~above40 + x + x_above, data = narrow)
+summary(mod2)
+#Report clustered standard errors
+clustervar <- as.factor(narrow$schlcode)
+BMlmSE(mod2, clustervar, IK=F)
+```
+
+The identification assumption for regression discontinuity design is that a) there is no other discontinuity except the variable in question and b) the agents involved in the experiment cannot influence the discontinuity.
+
+In this quasi-experiment, these assumptions appear to hold.
+
+If schools followed the class size rule described in Angrist and Lavy (1999) - that once schools reach 40 students, they should split students into multiple classes - class size should roughly half on average at 40 students. Since it is likely the case that not all schools follow this rule directly, the true effect is less than this.
+
+This phenomenon is evident when considering a plot of average class size versus school enrollment. Though the data appear to be linear in various ranges throughout the chart, a linear model considering the whole data set does not fit.
+
+```{r q7, echo=FALSE}
+grouped <- narrow %>% group_by(schlcode) %>% mutate(avg_class = mean(classize))
+plot(grouped$school_enrollment, grouped$avg_class, pch=16, main="Avg. Class Size vs. School Enrollment", xlab="School Enrollment", ylab="Avg. Class Size")
+abline(lm(data=grouped, avg_class~school_enrollment), col="red", lwd=2)
+```
+
+When we see split the data at school enrollment = 40, the pattern is more clear. Still, it appears that some schools make the switch to more, smaller classes before they reach 40 students. This further obfuscates the relationship.
+
+```{r q7ii, echo=FALSE}
+#rdplot(grouped$school_enrollment, grouped$avg_class, c = 40.5, p =1, nbins = 40,title="Average Class Size vs. School Enrollment", y.label = "Avg. Class Size", x.label = "School Enrollment", x.lim = c(0,80))
+par(mfrow=c(1,2))
+low <- grouped %>% filter(school_enrollment < 40.5)
+high <- grouped %>% filter(school_enrollment > 40.5)
+plot(low$school_enrollment, low$avg_class, pch=16, ylim=c(0,45), xlim=c(0,40), main = "Avg. Class Size vs. \n School Enrollment", xlab = "School Enrollment", ylab="Avg. Class Size")
+abline(lm(data=grouped, avg_class~school_enrollment), col="red", lwd=2)
+plot(high$school_enrollment, high$avg_class, pch=16, ylim=c(0,45), xlim=c(40,80), main = "Avg. Class Size vs. \n School Enrollment", xlab = "School Enrollment", ylab="Avg. Class Size")
+abline(lm(data=high, avg_class~school_enrollment), col="red", lwd=2)
+```
+
+If all schools followed the class size rule as it is stated in Angrist and Lavy (1999), then we would see an immediate drop to an average of 20.5 students/class upon the school enrolling 41 students. In our data, it seems like the discontinuity begins to appear more around the 30 student mark, but it varies significantly by school. In any case, the average doesn't appear to drop as drastically as the rule would suggest.
+
+Question 8: Suppose your school superintendent is considering a reform to reduce class sizes in your school from 40 to 35. Use your estimates above to predict the change in math and verbal test scores that would result from this reform.
+
+If we want to understand how student outcomes would change if they were in smaller classes, we can divide the RD estimate of the change in test scores by the change in number of students per class at the threshold.
+
+First, we have to calculate the average class size for schools with enrollments of 40 students and those with enrollments of 41.
+
+```{r q8 continued, echo=FALSE}
+enrollment40 <- grouped %>% filter(school_enrollment == 40)
+enrollment41 <- grouped %>% filter(school_enrollment == 41)
+mean40 <- mean(enrollment40$avg_class)
+mean41 <- mean(enrollment41$avg_class)
+barplot(c(mean40, mean41), names.arg=c("Enrollment = 40", "Enrollment = 41"), ylab="Average Class Size", ylim=c(0, 35))
+text(0.7, 32, mean40)
+text(1.9, 25, mean41)
+```
+
+The estimated discontinuity from the RD analysis was 3.4289 for average math score and 2.62813 for average verbal score. When school enrollment increased from 40 to 41 (where we measured the discontinuity), average class size decreased from 29.89 students/class to 22.68 students/class, or by 7.21 students/class. The proposed students/class decrease is 5 students, from 40 to 35. Thus, we can estimate that the change in average math score per decrease in student/class is 3.4289/7.21 = 0.48 and the change in average verbal score is 2.62813/7.21 = 0.36.
+
+With this in mind, we can predict that the change in students/class from 40 to 35 (a 5-student decrease) will result in a change in average math score of 0.48\*5 = 2.4 and a change in average verbal score of 0.36\*5 = 1.8.
+
+However, this phenomenon may not hold for other 5-student decreases. Intuitively, smaller classes should still increase test scores, but we have to test that on the data.
+
+```{r q9, echo=FALSE}
+class20 <- grouped %>% filter(avg_class > 17.5 & avg_class < 22.5)
+class15 <- grouped %>% filter(avg_class > 12.5 & avg_class < 17.5)
+mean_math20 <- mean(class20$avgmath)
+mean_math15 <- mean(class15$avgmath)
+mean_verbal20 <- mean(class20$avgverb)
+mean_verbal15 <- mean(class15$avgverb)
+med_math20 <- median(class20$avgmath)
+med_math15 <- median(class15$avgmath)
+med_verb20 <- median(class20$avgverb)
+med_verb15 <- median(class15$avgverb)
+print("Verbal Mean, class size between 12.5 and 17.5:", quote=FALSE)
+print(mean_verbal15)
+print("Verbal Mean, class size between 17.5 and 22.5:", quote=FALSE)
+print(mean_verbal20)
+print("Math Mean, class size between 12.5 and 17.5:", quote=FALSE)
+print(mean_math15)
+print("Math Mean, class size between 17.5 and 22.5:", quote=FALSE)
+print(mean_math20)
+print("Math Median, class size between 12.5 and 17.5:", quote=FALSE)
+print(med_math15)
+print("Math Median, class size between 17.5 and 22.5:", quote=FALSE)
+print(med_math20)
+print("Verbal Median, class size between 12.5 and 17.5:", quote=FALSE)
+print(med_verb15)
+print("Verbal Median, class size between 17.5 and 22.5:", quote=FALSE)
+print(med_verb20)
+```
+
+```{r moreq9, echo=FALSE}
+par(mfrow=c(1,2))
+hist(class20$avgmath, main="Avg. Math Scores,\n Class Size=20", xlab="Avg. Math Score")
+hist(class15$avgmath, main="Avg. Math Scores,\n Class Size=15", xlab="Avg. Math Score")
+```
+
+The mean math scores for schools with class sizes of exactly 20 were higher than those with exactly 15 students/class by 2.6 points. But if we expand this to the *range* of schools between class sizes of 12.5 - 17.5 vs. 17.5-22.5, the mean math scores in the lower range are on average 2 points higher than the upper range.
+
+The histogram above shows that there is a larger range of average scores for schools in the upper range, but the median average score for schools in the upper range is 63.83, while the median for the lower range is 64.6. This would suggest that though a specific change from 20 students to 15 students didn't appear to have a positive impact on test scores, moving from the upper range (17.5 to 22.5 students/class) to the lower range (12.5 to 17.5 students/class) had a slight positive impact on test scores.
+
+This phenomenon holds for verbal scores as well.
+
+```{r q9 continued, echo=FALSE}
+par(mfrow=c(1,2))
+hist(class20$avgverb, main="Avg. Verbal Scores,\n Class Size 17.5-22.5", xlab="Avg. Verbal Score")
+hist(class15$avgverb, main="Avg. Verbal Scores,\n Class Size 12.5-17.5", xlab="Avg. Verbal Score")
+```
+
+Based on this study, you can expect a small increase in average and median math and verbal scores by moving from the 17.5-22.5 students/class range to the 12.5-17.5 students/class range. I would be less confident repeating the same prediction I made to the school moving from 40-35 students/class, but I would still be fairly confident in saying that a decrease in students/class would still have a positive impact, albeit a smaller one.
+
+We've seen that higher scores in kindergarten have been shown to improve outcomes in the long run, so this is still a valuable effect to seek out. This may mean that a district would be best-served to minimize the class sizes in its kindergarten classes, but not worry so much about class size in the later grades.
