@@ -1,0 +1,214 @@
+---
+title: "Housing Vouchers in Washington State"
+author: "Ben Warren"
+date: '2023-05-29'
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(haven)
+library(dplyr)
+cmto_data <- read_dta('cmto.dta')
+```
+
+**Abstract:**
+
+An analysis of data collected in a study of over 800 families from Washington's Seattle and King counties demonstrated that offering families who qualified for Section 8 vouchers an additional suite of public housing services was correlated with positive outcomes in those families leasing in high-opportunity zones. In particular, those who took advantage of the services in King County were more likely to lease in these zones, while the predicted effect of offering additional services was an increase of 2.5 percentage points in household income.
+
+**Analysis:** In this study, investigating the impact of housing vouchers for low-income families, allowing them to move into high-opportunity areas, *pha* acts as an assignment variable. It represents which housing authority the family falls in, either Seattle or King County. So, this is a discrete variable where each value is a different level of the treatment, making it an assignment variable. Since the two counties handled recruitment into the study differently, this assignment variable may have some impact on the findings for families in each county.
+
+Though they handled recruitment differently, both counties randomly assigned families into treatment and control groups. To ascertain whether the assignments are effectively random, we should look at the values of different variables compared between treatment and control groups.
+
+The variables I will look at are: hoh_age (head of household's age at baseline), child_count (number of children at baseline), child_age (average age of children at baseline), and hh_income (household income at baseline).
+
+```{r treatcontrolnum, echo=FALSE}
+treated <- cmto_data %>% filter(treatment_group == 1)
+control <- cmto_data %>% filter(treatment_group == 0)
+
+means_df = data.frame(treated = c(mean(treated$hoh_age), mean(treated$child_count),
+                                  mean(treated$child_age), mean(treated$hh_income)), 
+                      control = c(mean(control$hoh_age), mean(control$child_count),
+                                  mean(control$child_age), mean(control$hh_income)))
+means_df
+```
+
+In each of these categories, the treatment group is roughly identical to the control group.
+
+If we instead look at a number of variables that are discrete, with either 0s or 1s to describe the families who participated in the experiment we can check if the distribution of these variables across the control and treatment groups is roughly equal.
+
+```{r treatcontroldisc, echo=FALSE, include=FALSE}
+#Speaks English
+print("Speaks English")
+table(treated$speaks_english)
+table(control$speaks_english)
+
+#Born abroad
+print("Born Abroad")
+table(treated$born_abroad)
+table(control$born_abroad)
+
+#Working
+print("Working")
+table(treated$working)
+table(control$working)
+
+#Homeless
+print("Homeless")
+table(treated$homeless)
+table(control$homeless)
+
+#College-Plus
+print("College-Plus")
+table(treated$college_plus)
+table(control$college_plus)
+```
+
+If we now look at the difference between the means of the treatment and control groups, we see a slight difference between the two groups.
+
+```{r raw_difference, echo=FALSE, include=FALSE}
+mean_diffs <- means_df$treated - means_df$control
+```
+
+The raw differences in means (treated minus control) are as follows:
+
+```{r echo=FALSE}
+mean_diffs <- data.frame("Head of Household Age" <- c(-0.471), "Child Count" <- c(0.04), "Average Child Age" <- c(-0.211), "Household Income" <- c(-468.6))
+colnames(mean_diffs) <- c("Head of Household Age", "Child Count", "Average Child Age", "Household Income")
+mean_diffs
+```
+
+Meanwhile, the standard errors are the following:
+
+```{r stderr, echo=FALSE}
+#df with rows: sd of treatment values, sd of control values
+sd_data <- data.frame(sd1 = c(sd(treated$hoh_age), sd(treated$child_count), sd(treated$child_age), 
+                              sd(treated$hh_income)),
+                      sd2 = c(sd(control$hoh_age), sd(control$child_count), sd(control$child_age), 
+                              sd(control$hh_income)))
+n1 <- nrow(treated)
+n2 <- nrow(control)
+sd_error <- sqrt((sd_data$sd1)^2/n1 + sd_data$sd2^2/n2)
+
+std_errors <- data.frame(household_age <- 0.549, child_count <- 0.089, avg_child_age <- 0.258, hh_inc <- 843.6)
+colnames(std_errors) <- c("Head of Household Age", "Child Count", "Average Child Age", "Household Income")
+std_errors
+```
+
+Each of the variables shows a high level of randomness. None of the variables I looked at seem to skew based on the group families are assigned to.
+
+An important aspect of any randomly-assigned study that involves the provision of services is the *compliance rate*, or what proportion of the subjects assigned to the treatment group actually received the treatment. In this case, we must consider what proportion of the families assigned to the treatment group in the study received services through CMTO.
+
+```{r cmto_reg, echo=FALSE, include=FALSE}
+cmto_regression <- lm(received_cmto_services~treatment_group+pha, data=cmto_data)
+summary(cmto_regression)
+```
+
+When regressing the likelihood of receiving CMTO services on assignment to the treatment group, the model utility test returns a very low p-value, indicating that there is a linear relationship, while the R-squared value returns 0.62. Assignment to the treatment group (participation in the program) is responsible for \~62% of the variation in the target variable, a fairly strong relationship.
+
+Still, this means a fair number of the families involved in the study assigned to the treatment group did not take advantage of the services (otherwise the R-squared value would be around 1). This may influence the predicted influence of the vouchers on families who receive it.
+
+If we consider the intent-to-treat effect, instead of the overall effect, include all of the families in the treatment group, whether or not they used CMTO services. To do this, we can regress assignment to the treatment group on signing a lease in the high-opportunity area.
+
+```{r sign_lease_reg, echo=FALSE}
+sign_lease_reg <- lm(leased_up_opp~treatment_group+pha, data=cmto_data)
+summary(sign_lease_reg)
+```
+
+The results of this regression show that though there appears to be a linear relationship between assignment to the treatment group and leasing up into a high-opportunity zone (according to the model utility test, with a p-value of \< 0.05), the relationship is not large, with an R-squared of just 0.05.
+
+If we wish to isolate the treatment group families that actually used CMTO services, we could analyze the treatment-on-the-treated effect.This can be calculated by the same regression, but instead of using assignment to the treatment group as the independent variable, we use actual use of the services (represented by the variable received_cmto_services).
+
+```{r tot_reg, echo=FALSE}
+tot_reg <- lm(leased_up_opp~received_cmto_services+pha, data=cmto_data)
+summary(tot_reg)
+```
+
+There is a higher p-value on the model utility test when using the tot variable, as well as a larger r-squared value, demonstrating that actual use of CMTO services had a larger impact on the likelihood that a participant leased up into a high opportunity zone than simply being assigned to the treatment group.
+
+This makes sense when we consider that the second regression accounts for non-compliance. Just because a family was assigned into the treatment group doesn't mean that they actually used the service. We would assume then that for these families, assignment to the treatment group would not have an effect.
+
+An effective measure of predicted change for each family environment should be the change (positive or negative) in the long-run earnings of the origin and destination census tract.
+
+The distribution of the variable is as follows. The distribution overall appears fairly normal, centered close to 0, with a slight skew towards a positive change.
+
+```{r change_var, echo=FALSE}
+cmto_data$change_effect <- cmto_data$forecast_kravg30_p25 - cmto_data$origin_forecast_kravg30_p25
+```
+
+```{r dist_change_var, echo=FALSE}
+hist(cmto_data$change_effect, main="Dist. of predicted change of environment", xlab="Predicted Effect (Income %)")
+```
+
+If we look at the treatment and control groups separately, the distribution of the predicted effect for the treatment group is centered around 0.025, clearly to the right of the center of the distribution for the control group.
+
+```{r treat_control_change, echo=FALSE}
+treated <- cmto_data %>% filter(treatment_group == 1)
+control <- cmto_data %>% filter(treatment_group == 0)
+
+treatment_hist <- hist(treated$change_effect)
+control_hist <- hist(control$change_effect)
+
+transp_blue <- rgb(173, 216, 230, max = 255, alpha = 125)
+transp_green <- rgb(144, 238, 144, max = 255, alpha = 125)
+
+plot(treatment_hist, main="Dist. of predicted change of environment, treatment (G) vs. control (B))", xlab="Predicted Effect (Income %)", col=transp_blue, xlim=c(-0.11, 0.14))
+plot(control_hist, col=transp_green, add=TRUE)
+```
+
+A similar disparity appears in the mean effects of the two groups. The average change effect in the treatment group is 4 times the average change effect in the control group, a significant difference.
+
+```{r mean_effects, echo=FALSE}
+print("Avg. Change Effect, Treatment Group")
+mean(treated$change_effect)
+print("Avg. Change Effect, Control Group")
+mean(control$change_effect)
+print("Ratio of change effects:")
+mean(treated$change_effect)/mean(control$change_effect)
+```
+
+If we regress the change effect on treatment group, the regression shows a strong model utility test, as well as a relatively strong R-squared, with treatment group accounting for over 20% of the variation in the change effect. There seems to be a correlation between whether families were in the treatment group and the environmental change effect.
+
+```{r change_effect_reg, echo=FALSE}
+chg_effect_reg <- lm(change_effect~treatment_group+pha, data=cmto_data)
+summary(chg_effect_reg)
+```
+
+A heterogeneous treatment effect would occur if, for example, families in the study who made more money experienced a significantly greater effect from being in the treatment group than those who made less. This is an important consideration in analyzing the data from the study.
+
+In order to consider this, I will re-run the earlier regressions on 4 different groups: those with family income greater than the median in the sample, less than the median in the sample, and those in each of the public housing authorities individually.
+
+Family income greater than the median in the sample and less than (or equal to) the median in the sample:
+
+```{r med_income, echo=FALSE}
+med_income <- median(cmto_data$hh_income)
+above <- cmto_data %>% filter(hh_income <= med_income)
+below <- cmto_data %>% filter(hh_income > med_income)
+
+above_reg <- lm(leased_up_opp~received_cmto_services+pha, data=above)
+below_reg <- lm(leased_up_opp~received_cmto_services+pha, data=below)
+
+summary(above_reg)
+summary(below_reg)
+```
+
+There is no significant difference between the two regressions. There does not appear to be a heteregeneous effect based on household income.
+
+Each Public Housing Authority separately (KCHA and SHA):
+
+```{r housing_authority, echo=FALSE}
+kcha <- cmto_data %>% filter(pha==0)
+sha <- cmto_data %>% filter(pha==1)
+
+kcha_reg <- lm(leased_up_opp~received_cmto_services, data=kcha)
+sha_reg <- lm(leased_up_opp~received_cmto_services, data=sha)
+
+summary(kcha_reg)
+summary(sha_reg)
+```
+
+There *is* a significant difference in the r-squared value produced by the regression when the two different county housing authorities are considered. Families in King County experienced a 6 times greater effect of being assigned to the treatment group than those in Seattle.
+
+The two housing authorities handled recruitment and randomization for the study separately, so there may be some structural difference between the way King County recruited and randomized families in the study and the way Seattle did so. This warrants further investigation.
